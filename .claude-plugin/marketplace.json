@@ -1,0 +1,11 @@
+{
+  "name": "airbnb-finder",
+  "owner": { "name": "nstimofeev" },
+  "plugins": [
+    {
+      "name": "airbnb-finder",
+      "source": "./",
+      "description": "Find an Airbnb by what the filters can't express and get a shareable comparison page."
+    }
+  ]
+}

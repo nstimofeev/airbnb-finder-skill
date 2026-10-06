@@ -1,0 +1,100 @@
+{
+ "data": {
+  "node": {
+   "__typename": "DemandStayListing",
+   "pdpPresentation": {
+    "__typename": "DemandStayListingPdpPresentationContainer",
+    "thingsToKnow": [
+     {
+      "__typename": "StaysPdpThingsToKnowItem",
+      "type": "CANCELLATION_POLICY",
+      "title": "Cancellation policy",
+      "icon": "SYSTEM_CALENDAR_CANCEL",
+      "previewItems": [
+       "Free cancellation for 24 hours. Cancel before November 3 for a partial refund.",
+       "Review this host's full policy for details."
+      ],
+      "badge": null
+     },
+     {
+      "__typename": "StaysPdpThingsToKnowItem",
+      "type": "HOUSE_RULES",
+      "title": "House rules",
+      "icon": "SYSTEM_KEY",
+      "previewItems": [
+       "Check-in after 4:00\u202fPM",
+       "Checkout before 12:00\u202fPM",
+       "2 guests maximum"
+      ],
+      "badge": null
+     },
+     {
+      "__typename": "StaysPdpThingsToKnowItem",
+      "type": "SAFETY_AND_PROPERTY",
+      "title": "Safety & property",
+      "icon": "SYSTEM_SHIELD",
+      "previewItems": [
+       "Carbon monoxide alarm not reported",
+       "Smoke alarm not reported",
+       "Not suitable for children and infants"
+      ],
+      "badge": null
+     }
+    ],
+    "cancellationPolicy": {
+     "__typename": "CancellationMilestoneModalV2",
+     "actionLinkText": "How to find any cancellation policy",
+     "actionLinkUrl": "/help/article/149",
+     "disclaimers": [
+      "Time shown is based on the location of the listing.",
+      "<b>Refund eligibility</b><br/>If you're making <a target=\"_blank\" href=\"/help/article/2143\">scheduled payments</a>,  your refund or amount due will depend on how much you've paid at the time of cancellation."
+     ],
+     "entries": [
+      {
+       "__typename": "CancellationMilestoneEntryV2",
+       "accessibilityContent": "Full refund if cancel within 24 hours after booking. Get back 100% of what you paid..",
+       "refundTerm": "Get back 100% of what you paid.",
+       "refundType": "Full refund",
+       "timelineSubtitles": [
+        "24 hours",
+        "after booking"
+       ],
+       "timelineTitle": "Within"
+      },
+      {
+       "__typename": "CancellationMilestoneEntryV2",
+       "accessibilityContent": "Partial refund if cancel before 4:00\u202fPM on November 3. Get back 50% of every night. No refund of the service fee..",
+       "refundTerm": "Get back 50% of every night. No refund of the service fee.",
+       "refundType": "Partial refund",
+       "timelineSubtitles": [
+        "Nov 3",
+        "4:00\u202fPM"
+       ],
+       "timelineTitle": "Before"
+      },
+      {
+       "__typename": "CancellationMilestoneEntryV2",
+       "accessibilityContent": "No refund if cancel after 4:00\u202fPM on November 3. This reservation is non-refundable..",
+       "refundTerm": "This reservation is non-refundable.",
+       "refundType": "No refund",
+       "timelineSubtitles": [
+        "Nov 3",
+        "4:00\u202fPM"
+       ],
+       "timelineTitle": "After"
+      }
+     ],
+     "subtitles": [],
+     "title": "Cancellation policy",
+     "loggingMetadata": {
+      "__typename": "CancellationModalLoggingMetadata",
+      "cancellationPolicyId": 44
+     }
+    }
+   }
+  }
+ },
+ "extensions": {
+  "traceId": "Uzsy6XQxppZ8kNZdl9qVWg=="
+ }
+}

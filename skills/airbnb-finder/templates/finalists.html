@@ -1,0 +1,447 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600&family=Golos+Text:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/*__LEAFLET_CSS__*/
+</style>
+<style>
+/* Layout: one reading column; map + comparison table on top, then a card per finalist, then the quote explorer. */
+:root {
+  --bg: #F2F4F1; --surface: #FFFFFF; --sunk: #E8ECE8; --ink: #17221E; --muted: #58675F; --line: #D6DDD8;
+  --accent: #1E5C86; --accent-ink: #FFFFFF; --pin-anchor: #8A3B12;
+  --ok: #2B7349; --ok-bg: #DDEFE3; --warn: #94600F; --warn-bg: #F6E8CC; --fail: #A8322A; --fail-bg: #F7DEDB;
+  --f-display: "Unbounded", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F1513; --surface: #161E1B; --sunk: #1D2723; --ink: #E4EBE7; --muted: #98A7A0; --line: #2A3631;
+  --accent: #78B4DE; --accent-ink: #0C1A24; --pin-anchor: #F0A070;
+  --ok: #6CCB93; --ok-bg: #173325; --warn: #E7B45A; --warn-bg: #35290F; --fail: #F08A80; --fail-bg: #3A1B18;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F1513; --surface: #161E1B; --sunk: #1D2723; --ink: #E4EBE7; --muted: #98A7A0; --line: #2A3631;
+  --accent: #78B4DE; --accent-ink: #0C1A24; --pin-anchor: #F0A070;
+  --ok: #6CCB93; --ok-bg: #173325; --warn: #E7B45A; --warn-bg: #35290F; --fail: #F08A80; --fail-bg: #3A1B18;
+  color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(26px, 5vw, 40px); font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 20px; font-weight: 500; }
+h3 { font-size: 17px; font-weight: 500; line-height: 1.3; }
+p { margin: 0; }
+a { color: var(--accent); }
+.num { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+.eyebrow { font: 500 12px/1.3 var(--f-data); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+section { display: grid; gap: 16px; min-width: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+header { display: grid; gap: 14px; }
+.trip { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 14px var(--f-data); color: var(--muted); }
+.overview { font-size: 17px; max-width: 65ch; }
+
+/* map */
+#map { height: 360px; border-radius: var(--r); border: 1px solid var(--line); background: var(--sunk); z-index: 0; }
+.leaflet-container { font-family: var(--f-body); background: var(--sunk); }
+.pin { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent);
+  color: var(--accent-ink); font: 600 14px var(--f-data); border: 2px solid var(--surface); box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
+.pin-anchor { width: 16px; height: 16px; border-radius: 3px; background: var(--pin-anchor); border: 2px solid var(--surface);
+  transform: rotate(45deg); box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
+.anchor-label { font: 600 12px var(--f-body); color: var(--pin-anchor); text-shadow: 0 0 3px var(--surface), 0 0 3px var(--surface); white-space: nowrap; }
+.pin-place { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); border: 2px solid var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / .3); }
+.place-label { font: 500 11px var(--f-body); color: var(--ink); text-shadow: 0 0 3px var(--surface), 0 0 3px var(--surface); white-space: nowrap; }
+.around { display: grid; gap: 8px; font-size: 14px; padding: 12px 14px; background: var(--sunk); border-radius: 8px; }
+.around .row { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.around .lbl { font: 500 12px var(--f-data); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; min-width: 9ch; }
+.mins b { font-family: var(--f-data); font-weight: 500; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 14px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r); }
+.controls label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; min-width: 0; max-width: 100%; }
+select, input[type=range] { font: inherit; accent-color: var(--accent); }
+select { max-width: 100%; min-width: 0; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+
+/* table */
+.table-box { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+th { font: 500 12px var(--f-data); color: var(--muted); letter-spacing: .03em; background: var(--sunk); position: sticky; top: 0; }
+th button { all: unset; cursor: pointer; }
+th button:hover, th button:focus-visible { color: var(--ink); text-decoration: underline; }
+tr:last-child td { border-bottom: 0; }
+td.name { white-space: normal; min-width: 180px; }
+td.name a { color: var(--ink); font-weight: 600; text-decoration: none; }
+td.name a:hover { text-decoration: underline; }
+
+/* verdict chips */
+.v { display: inline-block; padding: 2px 8px; border-radius: 999px; font: 500 12px var(--f-data); }
+.v-ok { color: var(--ok); background: var(--ok-bg); }
+.v-warn { color: var(--warn); background: var(--warn-bg); }
+.v-fail { color: var(--fail); background: var(--fail-bg); }
+
+/* cards */
+.cards { display: grid; gap: 28px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: grid; min-width: 0; scroll-margin-top: 16px; }
+.gallery { display: flex; gap: 4px; overflow-x: auto; scroll-snap-type: x mandatory; background: var(--sunk); }
+.gallery figure { margin: 0; flex: 0 0 auto; width: min(82%, 420px); scroll-snap-align: start; position: relative; }
+.gallery img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; max-width: 100%; }
+.gallery figcaption { position: absolute; left: 8px; bottom: 8px; right: 8px; font-size: 12px; color: #fff;
+  text-shadow: 0 1px 3px rgb(0 0 0 / .8); }
+.card-body { padding: 18px; display: grid; gap: 16px; min-width: 0; }
+.card-head { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; }
+.rank { font: 600 30px/1 var(--f-display); color: var(--accent); min-width: 1.2ch; }
+.title-line { font-size: 13px; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; }
+.facts b { font-family: var(--f-data); font-weight: 500; }
+.badge { font: 500 11px var(--f-data); text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--muted); }
+.near { color: var(--warn); }
+.proscons { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; }
+.proscons ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.flags { padding: 10px 12px; border-radius: 8px; background: var(--fail-bg); color: var(--fail); font-size: 14px; }
+.crit { display: grid; gap: 10px; }
+.crit-row { display: grid; grid-template-columns: minmax(110px, 170px) 1fr; gap: 6px 14px; align-items: start; }
+.crit-row > div { min-width: 0; }
+.crit-name { font-weight: 600; font-size: 14px; display: grid; gap: 4px; justify-items: start; }
+.quote { font-size: 14px; padding-left: 10px; border-left: 2px solid var(--line); margin-top: 6px; }
+.quote.for { border-color: var(--ok); }
+.orig { border: 0; padding: 2px 0 0; font-size: 12px; color: var(--muted); }
+.orig summary { font-weight: 400; font-size: 12px; color: var(--muted); display: inline; }
+.quote.against { border-color: var(--fail); }
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.amen { columns: 2 220px; column-gap: 24px; font-size: 14px; margin-top: 8px; }
+.amen div { break-inside: avoid; margin-bottom: 10px; }
+.amen .cat { font: 500 12px var(--f-data); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.amen ul, .plain { margin: 4px 0 0; padding-left: 18px; }
+.amen .off { text-decoration: line-through; color: var(--muted); }
+.subr { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 16px; font-size: 14px; margin-top: 8px; }
+.cta { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 8px; background: var(--accent);
+  color: var(--accent-ink); text-decoration: none; font-weight: 600; justify-self: start; }
+
+/* quote explorer */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+#qlisting { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.chip { font: 500 13px var(--f-body); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.qlist { display: grid; gap: 10px; }
+.qitem { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; font-size: 14px; }
+.qmeta { font: 12px var(--f-data); color: var(--muted); }
+footer { font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+
+@media (max-width: 560px) {
+  .crit-row { grid-template-columns: 1fr; }
+  #map { height: 300px; }
+  .card-body { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" data-t="eyebrow"></div>
+    <h1 id="h1"></h1>
+    <div class="trip" id="trip"></div>
+    <p class="overview" id="overview"></p>
+  </header>
+
+  <section aria-labelledby="map-h">
+    <h2 id="map-h" data-t="map_h"></h2>
+    <div id="map" role="img" data-ta="map_aria"></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section aria-labelledby="cmp-h">
+    <h2 id="cmp-h" data-t="cmp_h"></h2>
+    <div class="controls">
+      <label for="sort"><span data-t="sort_label"></span>
+        <select id="sort"></select>
+      </label>
+      <label for="nofail"><input type="checkbox" id="nofail"> <span data-t="nofail"></span></label>
+      <label for="maxprice"><span data-t="upto"></span> <span class="num" id="maxprice-val"></span>
+        <input type="range" id="maxprice">
+      </label>
+    </div>
+    <div class="table-box"><table id="cmp"></table></div>
+  </section>
+
+  <section aria-labelledby="cards-h">
+    <h2 id="cards-h" data-t="cards_h"></h2>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section aria-labelledby="q-h">
+    <h2 id="q-h" data-t="q_h"></h2>
+    <p class="muted" data-t="q_intro"></p>
+    <div class="chips" id="qlisting" data-ta="q_listing_aria"></div>
+    <div class="chips" id="qcrit"></div>
+    <div class="chips" id="qside"></div>
+    <div class="qlist" id="qlist"></div>
+  </section>
+
+  <footer>
+    <div id="foot-prices"></div>
+    <div id="fx" hidden></div>
+    <div data-t="foot_coords"></div>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const UI = /*__UI__*/null;
+const LANG = DATA.lang || "en";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// T: plain text (for textContent); TH: escaped UI text with HTML values the caller already escaped
+const T = (k, v) => String(UI[k] ?? k).replace(/\{(\w+)\}/g, (_, n) => v?.[n] ?? "");
+const TH = (k, v) => esc(UI[k] ?? k).replace(/\{(\w+)\}/g, (_, n) => v?.[n] ?? "");
+document.documentElement.lang = LANG;
+if (["he", "ar", "fa", "ur"].includes(LANG)) document.documentElement.dir = "rtl";
+document.querySelectorAll("[data-t]").forEach((e) => e.textContent = T(e.dataset.t));
+document.querySelectorAll("[data-ta]").forEach((e) => e.setAttribute("aria-label", T(e.dataset.ta)));
+const num1 = (v) => new Intl.NumberFormat(LANG, { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(v);
+const cur = DATA.trip.currency || "USD";
+const money = (v) => v == null ? "—" : new Intl.NumberFormat(LANG, { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(v);
+const dist = (m) => m == null ? "—" : m < 1000 ? T("m", { n: m }) : T("km", { n: num1(m / 1000) });
+const VERDICT = { ok: T("v_ok"), warn: T("v_warn"), fail: T("v_fail") };
+const vchip = (v) => v ? `<span class="v v-${v}">${esc(VERDICT[v] || v)}</span>` : "—";
+const SUBR = Object.fromEntries(["cleanliness", "accuracy", "checkin", "communication", "location", "value"].map((k) => [k, T(`sub_${k}`)]));
+const L = DATA.listings;
+const HAS_CTX = L.some((x) => x.context);
+const ctx = (x) => x.context || {};
+const unpavedKm = (x) => { const a = ctx(x).access?.first_5km_m; return a ? a.unpaved / 1000 : null; };
+const unknownKm = (x) => { const a = ctx(x).access?.first_5km_m; return a ? a.unknown / 1000 : null; };
+const km1 = (v) => v == null ? "—" : T("km", { n: num1(v) });
+const meals15 = (x) => ctx(x).food?.meal_places_within_15min;
+const bld150 = (x) => ctx(x).neighbours?.osm_buildings_within_150m;
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+// ---- header
+(function header() {
+  const a = new Date(DATA.trip.checkin + "T12:00:00"), b = new Date(DATA.trip.checkout + "T12:00:00");
+  const df = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "long", year: "numeric" });
+  const range = df.formatRange ? df.formatRange(a, b) : `${df.format(a)} – ${df.format(b)}`;
+  const g = DATA.trip.guests || {};
+  const guests = [g.adults ? T("adults", { n: g.adults }) : "", g.children ? T("children", { n: g.children }) : ""].filter(Boolean).join(", ");
+  $("#h1").textContent = document.title;
+  $("#trip").innerHTML = [range, T("nights", { n: DATA.trip.nights }), guests,
+    T("finalists_n", { n: L.length })].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join("");
+  $("#overview").textContent = DATA.overview || "";
+  $("#foot-prices").textContent = T("foot_prices", { date: DATA.generated });
+  const fx = DATA.trip.fx;
+  if (fx) { $("#fx").hidden = false; $("#fx").textContent = T("fx", { from: fx.from, to: fx.to, date: fx.date, rate: new Intl.NumberFormat(LANG, { maximumFractionDigits: 4 }).format(fx.rate) }); }
+})();
+
+// ---- state: sort / filters
+const sortOpts = [["rank", T("sort_rank")], ["price", T("sort_price")], ["rating", T("sort_rating")],
+  ...DATA.anchors.map((a, i) => [`d${i}`, T("sort_near", { name: a.label || a.name })])];
+$("#sort").innerHTML = sortOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+const prices = L.map((x) => x.price_total).filter((v) => v != null);
+const pMax = prices.length ? Math.ceil(Math.max(...prices)) : 0, pMin = prices.length ? Math.floor(Math.min(...prices)) : 0;
+const range = $("#maxprice");
+// the slider snaps to min + k*step: make max land exactly on a step, or the priciest listing is hidden by default
+const pStep = Math.max(1, Math.round((pMax - pMin) / 50));
+range.min = pMin; range.step = pStep; range.max = pMin + pStep * Math.ceil((pMax - pMin) / pStep); range.value = range.max;
+if (!prices.length || pMin === pMax) range.closest("label").hidden = true;
+$("#sort").value = store.get("af-sort") || "rank";
+if (![...$("#sort").options].some((o) => o.value === $("#sort").value)) $("#sort").value = "rank";
+let tableSort = null;
+
+function visible() {
+  const noFail = $("#nofail").checked, max = +range.value;
+  let list = L.filter((x) => (!noFail || !Object.values(x.criteria).some((c) => c.verdict === "fail"))
+    && (x.price_total == null || x.price_total <= max));
+  const key = tableSort || $("#sort").value;
+  const by = {
+    rank: (x) => x.rank, price: (x) => x.price_total ?? 1e12, rating: (x) => -(x.rating ?? 0),
+    pets: (x) => x.pets_allowed === false ? 0 : x.pets_allowed == null ? 1 : 2,
+    meals: (x) => -(meals15(x) ?? -1), unpaved: (x) => unpavedKm(x) ?? 99, neigh: (x) => bld150(x) ?? 999,
+  };
+  DATA.anchors.forEach((a, i) => by[`d${i}`] = (x) => x.distances_m?.[a.name] ?? 1e9);
+  DATA.criteria.forEach((c) => by[`c:${c.key}`] = (x) => ({ ok: 0, warn: 1, fail: 2 }[x.criteria[c.key]?.verdict] ?? 3));
+  const f = by[key] || by.rank;
+  return list.slice().sort((a, b) => f(a) - f(b) || a.rank - b.rank);
+}
+
+// ---- comparison table
+function renderTable(list) {
+  const cols = [["rank", "#"], [null, T("col_listing")], ["price", T("col_total")], ["rating", T("col_rating")], ["pets", T("col_pets")],
+    ...DATA.anchors.map((a, i) => [`d${i}`, T("col_to", { name: a.label || a.name })]),
+    ...(HAS_CTX ? [["meals", T("col_meals")], ["unpaved", T("col_unpaved")], ["neigh", T("col_bld")]] : []),
+    ...DATA.criteria.map((c) => [`c:${c.key}`, c.label])];
+  const head = `<thead><tr>${cols.map(([k, t]) => `<th scope="col">${k ? `<button type="button" data-sort="${k}">${esc(t)}</button>` : esc(t)}</th>`).join("")}</tr></thead>`;
+  const rows = list.map((x) => `<tr>
+    <td class="num">${x.rank}</td>
+    <td class="name"><a href="#l-${x.id}">${esc(x.headline || x.title)}</a></td>
+    <td class="num">${money(x.price_total)}</td>
+    <td class="num">${x.rating ?? "—"}${x.reviews_count ? ` <span class="muted">(${x.reviews_count})</span>` : ""}</td>
+    <td>${x.pets_allowed === false ? TH("pets_no") : x.pets_allowed === true ? `<span class="near">${TH("pets_yes")}</span>` : "—"}</td>
+    ${DATA.anchors.map((a) => `<td class="num">${dist(x.distances_m?.[a.name])}${x.near_boundary ? "*" : ""}</td>`).join("")}
+    ${HAS_CTX ? `<td class="num">${meals15(x) ?? "—"}</td><td class="num">${km1(unpavedKm(x))}</td><td class="num">${bld150(x) ?? "—"}</td>` : ""}
+    ${DATA.criteria.map((c) => `<td>${vchip(x.criteria[c.key]?.verdict)}</td>`).join("")}
+  </tr>`).join("");
+  $("#cmp").innerHTML = head + `<tbody>${rows || `<tr><td colspan="${cols.length}" class="muted">${TH("empty_filter")}</td></tr>`}</tbody>`;
+  $("#cmp").querySelectorAll("button[data-sort]").forEach((b) => b.onclick = () => { tableSort = b.dataset.sort; render(); });
+}
+
+function quoteHtml(q) {
+  const tag = q.verified === false ? ` <span class="muted">${TH("paraphrase")}</span>` : "";
+  const orig = q.orig ? `<details class="orig"><summary>${TH("original")}</summary>${esc(q.orig)}</details>` : "";
+  return `<div class="quote ${q.side}">${esc(q.text)}${tag}${orig}</div>`;
+}
+
+// ---- surroundings block
+function around(x) {
+  const c = x.context;
+  if (!c) return "";
+  const places = Object.entries(c.places_min || {}).sort((a, b) => a[1] - b[1])
+    .map(([n, m]) => `<span class="mins">${esc(n)} ${TH("min", { n: `<b>${Math.round(m)}</b>` })}</span>`).join("");
+  const food = (c.food?.nearest || []).filter((p) => p.kind !== "cafe").slice(0, 6)
+    .map((p) => `<span class="mins">${esc(p.name || T("unnamed"))} ${TH("min", { n: `<b>${Math.round(p.min)}</b>` })}</span>`).join("");
+  const a = c.access?.first_5km_m;
+  const road = a ? T("road", { p: km1(a.paved / 1000), u: km1(a.unpaved / 1000), k: km1(a.unknown / 1000) }) : T("no_data");
+  const n = c.neighbours || {};
+  return `<div class="around">
+    <div class="row"><span class="lbl">${TH("lbl_food")}</span><span>${TH("food_row", { a: c.food?.meal_places_within_15min ?? 0, b: c.food?.meal_places_within_20min ?? 0 })}</span>${food}</div>
+    ${places ? `<div class="row"><span class="lbl">${TH("lbl_places")}</span>${places}</div>` : ""}
+    <div class="row"><span class="lbl">${TH("lbl_access")}</span><span>${TH("access_row", { road: esc(road) })}${c.snap_to_road_m > 150 ? TH("snap", { n: c.snap_to_road_m }) : ""}</span></div>
+    <div class="row"><span class="lbl">${TH("lbl_neigh")}</span><span>${TH("neigh_row", { a: n.osm_buildings_within_150m ?? "—", b: n.osm_buildings_within_300m ?? "—", c: n.airbnb_listings_within_300m ?? "—" })}</span></div>
+    <div class="muted" style="font-size:12px">${TH("ctx_note")}</div>
+  </div>`;
+}
+
+// ---- cards
+function card(x) {
+  const photos = x.photos.map((p) => `<figure><img src="${esc(p.src)}" alt="${esc(p.caption || p.room || x.title)}" loading="lazy">${p.caption || p.room ? `<figcaption>${esc(p.caption || p.room)}</figcaption>` : ""}</figure>`).join("");
+  const facts = [
+    `<span>${TH("price_total", { v: `<b>${money(x.price_total)}</b>` })}</span>`,
+    x.price_per_night ? `<span>${TH("per_night", { v: `<b>${money(x.price_per_night)}</b>` })}</span>` : "",
+    x.rating ? `<span>★ <b>${x.rating}</b>${x.reviews_count ? ` · ${TH("reviews_n", { n: x.reviews_count })}` : ""}</span>` : "",
+    x.capacity ? `<span>${TH("guests_upto", { n: `<b>${x.capacity}</b>` })}</span>` : "",
+    x.pets_allowed === false ? `<span>${TH("pets_no_long")}</span>` : x.pets_allowed === true ? `<span class="near">${TH("pets_yes_long")}</span>` : "",
+    ...(x.overview || []).map((s) => `<span>${esc(s)}</span>`),
+  ].filter(Boolean).join("");
+  const dists = DATA.anchors.map((a) => `<span>${esc(a.label || a.name)}: <b>${dist(x.distances_m?.[a.name])}</b></span>`).join("")
+    + (x.near_boundary ? `<span class="near">${TH("near_boundary")}</span>` : "");
+  const badges = (x.badges || []).map((b) => `<span class="badge">${UI[`badge_${b}`] ? TH(`badge_${b}`) : esc(b)}</span>`).join(" ");
+  const crit = DATA.criteria.map((c) => {
+    const v = x.criteria[c.key] || {};
+    const qs = (v.quotes || []).map(quoteHtml).join("");
+    return `<div class="crit-row"><div class="crit-name">${esc(c.label)} ${vchip(v.verdict)}</div><div>${esc(v.note || "")}${qs}</div></div>`;
+  }).join("");
+  const groups = {};
+  (x.amenities || []).forEach((a) => (groups[a.category || T("amen_other")] ||= []).push(a));
+  const amen = Object.entries(groups).map(([g, items]) => `<div><div class="cat">${esc(g)}</div><ul>${items.map((a) => `<li class="${a.available === false ? "off" : ""}">${esc(a.name)}${a.note ? ` <span class="muted">— ${esc(a.note)}</span>` : ""}</li>`).join("")}</ul></div>`).join("");
+  const subr = Object.entries(x.sub_ratings || {}).filter(([, v]) => v != null).map(([k, v]) => `<span>${SUBR[k] || k}: <b class="num">${v}</b></span>`).join("");
+  const h = x.host || {};
+  const host = [h.name, h.superhost ? T("badge_superhost") : "", h.years_hosting ? T("host_years", { n: h.years_hosting }) : "",
+    h.response_rate ? T("host_responds", { n: h.response_rate }) : "", h.response_time || ""].filter(Boolean).map(esc).join(" · ");
+  const rm = x.reviews_meta || {};
+  return `<article class="card" id="l-${x.id}">
+    ${photos ? `<div class="gallery" tabindex="0" aria-label="${TH("gallery_aria")}">${photos}</div>` : ""}
+    <div class="card-body">
+      <div class="card-head"><div class="rank num">${x.rank}</div>
+        <div style="display:grid;gap:4px;min-width:0"><h3>${esc(x.headline || x.title)}</h3>
+          <div class="title-line">${esc(x.title)}${x.property_type ? ` · ${esc(x.property_type)}` : ""}</div>
+          ${badges ? `<div>${badges}</div>` : ""}</div></div>
+      <div class="facts">${facts}</div>
+      <div class="facts">${dists}</div>
+      ${around(x)}
+      ${x.summary ? `<p>${esc(x.summary)}</p>` : ""}
+      ${x.red_flags?.length ? `<div class="flags"><b>${TH("warning")}</b> ${x.red_flags.map(esc).join("; ")}</div>` : ""}
+      ${x.pros?.length || x.cons?.length ? `<div class="proscons">
+        <div><b>${TH("pros")}</b><ul>${(x.pros || []).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>
+        <div><b>${TH("cons")}</b><ul>${(x.cons || []).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div></div>` : ""}
+      <div class="crit">${crit}</div>
+      <details><summary>${TH("amenities", { n: (x.amenities || []).filter((a) => a.available !== false).length })}</summary><div class="amen">${amen}</div></details>
+      <details><summary>${TH("rules")}</summary>
+        <ul class="plain">${(x.house_rules || []).map((r) => `<li>${esc(r)}</li>`).join("")}${(x.safety_and_property || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+        <p style="margin-top:8px"><b>${TH("cancel")}</b> ${esc(x.cancellation_policy || (x.free_cancellation ? T("free_cancel") : T("no_data")))}</p>
+        ${host ? `<p><b>${TH("host")}</b> ${host}</p>` : ""}</details>
+      ${subr ? `<details><summary>${TH("subratings")}</summary><div class="subr">${subr}</div></details>` : ""}
+      <div class="muted" style="font-size:13px">${TH("checked", { a: rm.collected ?? "—", b: rm.total ?? "—", c: x.photos.length, d: x.photos_total ?? x.photos.length })}</div>
+      <a class="cta" href="${esc(x.url)}" target="_blank" rel="noopener">${TH("open")}</a>
+    </div></article>`;
+}
+function renderCards(list) {
+  $("#cards").innerHTML = list.map(card).join("") || `<p class="muted">${TH("empty_filter")}</p>`;
+}
+
+// ---- quote explorer
+let qCrit = "all", qSide = "all", qListing = "all";
+function renderQuotes() {
+  const short = (t) => { t = t || ""; return t.length > 30 ? t.slice(0, 29).trimEnd() + "…" : t; };
+  const lOpts = [["all", T("all_listings")], ...L.slice().sort((a, b) => a.rank - b.rank).map((x) => [x.id, `№${x.rank} ${short(x.headline || x.title)}`])];
+  $("#qlisting").innerHTML = lOpts.map(([k, t]) => `<button type="button" class="chip" data-l="${esc(k)}" aria-pressed="${k === qListing}">${esc(t)}</button>`).join("");
+  $("#qlisting").querySelectorAll("button").forEach((b) => b.onclick = () => { qListing = b.dataset.l; renderQuotes(); });
+  const cOpts = [["all", T("all_criteria")], ...DATA.criteria.map((c) => [c.key, c.label])];
+  $("#qcrit").innerHTML = cOpts.map(([k, t]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${k === qCrit}">${esc(t)}</button>`).join("");
+  $("#qside").innerHTML = [["all", T("side_all")], ["for", T("side_for")], ["against", T("side_against")]].map(([k, t]) => `<button type="button" class="chip" data-s="${k}" aria-pressed="${k === qSide}">${esc(t)}</button>`).join("");
+  $("#qcrit").querySelectorAll("button").forEach((b) => b.onclick = () => { qCrit = b.dataset.k; renderQuotes(); });
+  $("#qside").querySelectorAll("button").forEach((b) => b.onclick = () => { qSide = b.dataset.s; renderQuotes(); });
+  const label = Object.fromEntries(DATA.criteria.map((c) => [c.key, c.label]));
+  const items = [];
+  visible().filter((x) => qListing === "all" || x.id === qListing).forEach((x) => Object.entries(x.criteria).forEach(([k, v]) => (v.quotes || []).forEach((q) => {
+    if ((qCrit === "all" || qCrit === k) && (qSide === "all" || qSide === q.side)) items.push({ x, k, q });
+  })));
+  $("#qlist").innerHTML = items.map(({ x, k, q }) => `<div class="qitem"><div class="qmeta">#${x.rank} · ${esc(x.headline || x.title)} · ${esc(label[k] || k)} · ${TH(q.side === "for" ? "for" : "against")}</div>${quoteHtml(q)}</div>`).join("")
+    || `<p class="muted">${TH("no_quotes")}</p>`;
+}
+
+// ---- map
+let map = null, markers = {};
+function renderMap() {
+  if (!window.L || !DATA.map) { $("#map").hidden = true; return; }
+  map = window.L.map("map", { scrollWheelZoom: false, attributionControl: true });
+  const m = DATA.map;
+  if (m.tiles) {
+    const b = m.bounds;
+    window.L.tileLayer("tiles/{z}/{x}/{y}.png", { minZoom: m.zmin, maxZoom: m.zmax + 1, maxNativeZoom: m.zmax,
+      bounds: [[b[0], b[1]], [b[2], b[3]]], attribution: "© OpenStreetMap" }).addTo(map);
+    map.setMinZoom(m.zmin); map.setMaxZoom(m.zmax + 1);
+  }
+  const pts = [];
+  DATA.anchors.forEach((a) => {
+    pts.push([a.lat, a.lng]);
+    window.L.marker([a.lat, a.lng], { icon: window.L.divIcon({ className: "", html: '<div class="pin-anchor"></div>', iconSize: [16, 16] }), keyboard: false })
+      .bindTooltip(`<span class="anchor-label">${esc(a.label || a.name)}</span>`, { permanent: true, direction: "right", className: "", opacity: 1 }).addTo(map);
+    if (a.max_distance_m) window.L.circle([a.lat, a.lng], { radius: a.max_distance_m, color: getComputedStyle(document.documentElement).getPropertyValue("--pin-anchor").trim() || "#8A3B12", weight: 1, fillOpacity: 0.05, dashArray: "4 4" }).addTo(map);
+  });
+  (DATA.places || []).forEach((p) => {
+    window.L.marker([p.lat, p.lng], { icon: window.L.divIcon({ className: "", html: '<div class="pin-place"></div>', iconSize: [10, 10] }), keyboard: false })
+      .bindTooltip(`<span class="place-label">${esc(p.name)}</span>`, { permanent: true, direction: "right", className: "", opacity: 1 }).addTo(map);
+  });
+  L.forEach((x) => {
+    if (x.lat == null) return;
+    pts.push([x.lat, x.lng]);
+    markers[x.id] = window.L.marker([x.lat, x.lng], { icon: window.L.divIcon({ className: "", html: `<div class="pin">${x.rank}</div>`, iconSize: [30, 30] }), title: x.headline || x.title, zIndexOffset: 1000 })
+      .on("click", () => document.getElementById(`l-${x.id}`)?.scrollIntoView({ behavior: "smooth" })).addTo(map);
+  });
+  // open on the finalists (+anchors); key places stay on the map for zooming out
+  if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: m.zmax || 16 });
+  $("#legend").innerHTML = [DATA.anchors.length ? `<span>${TH("legend_anchor")}</span>` : "",
+    (DATA.places || []).length ? `<span>${TH("legend_places")}</span>` : "", `<span>${TH("legend_fin")}</span>`].join("");
+}
+
+function render() {
+  const list = visible();
+  $("#maxprice-val").textContent = money(+range.value);
+  renderTable(list); renderCards(list); renderQuotes();
+  Object.entries(markers).forEach(([id, mk]) => mk.setOpacity(list.some((x) => x.id === id) ? 1 : 0.25));
+}
+$("#sort").onchange = () => { tableSort = null; store.set("af-sort", $("#sort").value); render(); };
+$("#nofail").onchange = render;
+range.oninput = render;
+renderMap();
+render();
+</script>

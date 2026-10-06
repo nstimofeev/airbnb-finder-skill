@@ -1,0 +1,65 @@
+# Trip settings. Replace the placeholders before the first run (run.py refuses YYYY dates).
+dates:
+  checkin: YYYY-MM-DD
+  checkout: YYYY-MM-DD
+guests:
+  adults: 2
+  children: 0
+
+# Where to look. Either a box (zone) or anchors with a radius, or both.
+zone:                       # search box; leave zeros to derive it from the anchors
+  ne: {lat: 0.0, lng: 0.0}
+  sw: {lat: 0.0, lng: 0.0}
+anchors: []                 # points the stay must be within a straight-line distance of, e.g.
+#  - {name: "Old town", lat: 38.7139, lng: -9.1334, max_distance_m: 1500}
+geometry_mode: all          # all = within reach of every anchor, any = of at least one
+
+# Places the trip is about (trailheads, beaches, the office, a relative's home). Driving minutes to each
+# are computed for every listing; the first one is also used to judge the road in. Optional.
+places: []
+#  - {name: "Sintra", lat: 38.7980, lng: -9.3880}
+
+price:
+  max_total: 0              # for the whole stay, 0 = no limit
+  currency: USD             # the currency Airbnb is asked to quote in
+min_capacity: 2
+room_types: [entire_home]   # entire_home | private_room | hotel_room | shared_room
+reviews_per_listing: 300    # reviews fetched per shortlisted listing, worst-rated first; code greps them
+pets: any                   # any | prefer_none (rank pet-free higher) | only_none (drop listings that allow pets)
+hard_criteria: []           # criterion keys whose fail removes a listing (on top of the first three criteria)
+# must_pass: [quiet, no_pets]   # replaces "first three + hard_criteria" with exactly this list
+# village_filter:               # keep only isolated houses (counts from OpenStreetMap + Airbnb around the point)
+#   {max_buildings_150m: 5, max_buildings_300m: 15, max_airbnb_400m: 3}
+
+# How the page looks
+display:
+  language: en              # language of the page and all its texts: en, ru, de, es, fr, he, …
+  currency: USD             # prices are converted at the ECB daily rate if this differs from price.currency
+  # title: "Lisbon, 10–15 November"   # page title; by default built from the dates
+
+# --- technical settings, usually left as is ---
+funnel:
+  shortlist: 30             # how many listings the model keeps for the detailed check
+  finalists: 8              # how many end up on the page
+  extend_shortlist: false   # true: re-running `narrow --force` adds candidates instead of replacing them
+models:                     # claude CLI model aliases
+  narrow: sonnet
+  assess: sonnet
+  rank: opus
+  texts: sonnet
+  translate: sonnet
+  parallel: 3               # listings checked at the same time
+network:
+  delay_s: [2, 5]           # random pause between Airbnb requests
+  retries: 4
+  block_pause_s: 90         # pause after a 403/429
+  max_blocked_in_row: 3     # stop after this many refusals in a row
+context:
+  enabled: true             # surroundings from OpenStreetMap: food, nature, neighbours, road surface
+  poi_radius_km: 30
+bundle:
+  photos_per_listing: 10    # photos downloaded per finalist for the offline page
+  map_tiles_max: 300        # OpenStreetMap tiles downloaded for the offline map
+artifact_bundle:            # smaller copy for claude.ai (fewer files)
+  photos_per_listing: 5
+  max_zoom: 12

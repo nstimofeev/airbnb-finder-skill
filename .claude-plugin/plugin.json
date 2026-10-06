@@ -1,0 +1,8 @@
+{
+  "name": "airbnb-finder",
+  "version": "1.0.0",
+  "description": "Find an Airbnb by what the filters can't express: reads reviews, house rules and OpenStreetMap surroundings of every candidate, ranks them against your criteria and builds a shareable comparison page.",
+  "author": { "name": "nstimofeev" },
+  "license": "MIT",
+  "keywords": ["airbnb", "travel", "accommodation", "reviews", "openstreetmap"]
+}
