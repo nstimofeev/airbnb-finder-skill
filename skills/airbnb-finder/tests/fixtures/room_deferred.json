@@ -6073,7 +6073,7 @@
         "passportData": {
          "__typename": "PassportCardData",
          "name": "Sam & Kim",
-         "userId": "RGVtYW5kVXNlcjoyNDQ2MTgw",
+         "userId": "RGVtYW5kVXNlcjow",
          "contextualUserId": "Q29udGV4dHVhbFVzZXI6MTQ2MjUyNDI1MTQwMDEwODQ3NQ==",
          "titleText": "Superhost",
          "profilePictureUrl": "https://a0.muscache.com/im/pictures/user/3af2a124-5d13-4a7d-8e0c-ec2c234c10c9.jpg",

@@ -21,12 +21,19 @@ It works offline from a folder, as a zip to send, or as a claude.ai artifact.
    removes listings that fail a must-have criterion; the model ranks the rest.
 6. The page: texts, translation into your language, prices converted to your currency (ECB rate).
 
-No API keys, no Airbnb account, nothing paid. Model steps run through your own Claude Code (`claude -p`).
+No API keys, no Airbnb account, no extra services. Model steps run through your own Claude Code (`claude -p`)
+on your plan: roughly 40–60 model calls per trip, the ranking on Opus — set cheaper models under `models:`
+in the trip's config if you like. The headless calls get no tools, no MCP servers and no settings: reviews
+and descriptions are untrusted text.
 
 ## Install
 
-Requirements: [Claude Code](https://claude.com/claude-code) and Python 3.10+ (Windows, macOS or Linux).
-On Windows prefer the native Claude Code installer (`claude.exe`).
+Requirements: [Claude Code](https://claude.com/claude-code) 2.1 or newer and 64-bit Python 3.10+ (Windows,
+macOS or Linux; macOS's built-in python3 is too old — use python.org or Homebrew). On Windows prefer the
+native Claude Code installer (`claude.exe`): with the npm `claude.cmd` the per-call timeout can't stop a
+stuck call and very long criteria lists may hit cmd.exe's command-line limit. If you configured Bedrock,
+Vertex or an API key through `settings.json`, set the same environment variables in your shell too: the
+headless calls skip settings files.
 
 As a plugin:
 
@@ -47,18 +54,18 @@ The first run creates a virtual environment in `~/.airbnb-finder/venv` (override
 ## Manual use
 
 ```
-python run.py init airbnb-trips/sintra          # creates config.yaml + criteria.md from examples/
-python run.py geocode "Sintra, Portugal"         # coordinates for config.yaml
-python run.py --trip airbnb-trips/sintra         # everything; each step skips what is already collected
-python run.py --trip airbnb-trips/sintra page --force   # rebuild only the page
+python skills/airbnb-finder/run.py init airbnb-trips/sintra     # config.yaml + criteria.md from examples/
+python skills/airbnb-finder/run.py geocode "Sintra, Portugal"    # coordinates for config.yaml
+python skills/airbnb-finder/run.py --trip airbnb-trips/sintra    # everything; each step skips what is done
+python skills/airbnb-finder/run.py --trip airbnb-trips/sintra page --force   # rebuild only the page
 ```
 
 (`py -3 run.py …` on Windows.) The settings are explained in
 [`examples/config.example.yaml`](skills/airbnb-finder/examples/config.example.yaml) and the workflow in
 [`SKILL.md`](skills/airbnb-finder/SKILL.md).
 
-Tests: `AIRBNB_FINDER_NO_BOOTSTRAP=1 python -X utf8 -m pytest -q skills/airbnb-finder/tests`
-(with `pytest`, `curl_cffi`, `PyYAML`, `jsonschema` installed).
+Tests: `python -X utf8 -m pytest -q skills/airbnb-finder/tests` (with `pytest` and the packages from
+`requirements.txt` installed).
 
 ## Please read
 
@@ -69,6 +76,10 @@ Tests: `AIRBNB_FINDER_NO_BOOTSTRAP=1 python -X utf8 -m pytest -q skills/airbnb-f
   itself, but expect occasional breakage.
 - OpenStreetMap (Overpass), OSRM and frankfurter.app are free community services with fair-use limits.
   Don't run many trips in parallel.
+- The offline map is a few hundred OpenStreetMap tiles up to zoom 12, within the
+  [tile usage policy](https://operations.osmfoundation.org/policies/tiles/); please don't raise
+  `bundle.max_zoom` for big areas.
+- The page shows your `places` on the map; mark a private one (someone's home) with `private: true`.
 - Listing coordinates are fuzzed by Airbnb by ~150 m; OpenStreetMap is incomplete in the countryside.
   Treat the surroundings numbers as strong hints, not facts.
 

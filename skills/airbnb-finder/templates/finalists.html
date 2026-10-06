@@ -209,9 +209,13 @@ document.documentElement.lang = LANG;
 if (["he", "ar", "fa", "ur"].includes(LANG)) document.documentElement.dir = "rtl";
 document.querySelectorAll("[data-t]").forEach((e) => e.textContent = T(e.dataset.t));
 document.querySelectorAll("[data-ta]").forEach((e) => e.setAttribute("aria-label", T(e.dataset.ta)));
-const num1 = (v) => new Intl.NumberFormat(LANG, { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(v);
+// an unknown language or currency code must not blank the page: fall back to English / a plain number
+const NF = (opts) => { try { return new Intl.NumberFormat(LANG, opts); } catch { try { return new Intl.NumberFormat("en", opts); } catch { return null; } } };
+const NUM1 = NF({ maximumFractionDigits: 1, minimumFractionDigits: 1 });
+const num1 = (v) => NUM1 ? NUM1.format(v) : v.toFixed(1);
 const cur = DATA.trip.currency || "USD";
-const money = (v) => v == null ? "—" : new Intl.NumberFormat(LANG, { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(v);
+const MONEY = NF({ style: "currency", currency: cur, maximumFractionDigits: 0 }) || null;
+const money = (v) => v == null ? "—" : MONEY ? MONEY.format(v) : `${Math.round(v)} ${cur}`;
 const dist = (m) => m == null ? "—" : m < 1000 ? T("m", { n: m }) : T("km", { n: num1(m / 1000) });
 const VERDICT = { ok: T("v_ok"), warn: T("v_warn"), fail: T("v_fail") };
 const vchip = (v) => v ? `<span class="v v-${v}">${esc(VERDICT[v] || v)}</span>` : "—";
@@ -229,8 +233,11 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 // ---- header
 (function header() {
   const a = new Date(DATA.trip.checkin + "T12:00:00"), b = new Date(DATA.trip.checkout + "T12:00:00");
-  const df = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "long", year: "numeric" });
-  const range = df.formatRange ? df.formatRange(a, b) : `${df.format(a)} – ${df.format(b)}`;
+  let range;
+  try {
+    const df = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "long", year: "numeric" });
+    range = df.formatRange ? df.formatRange(a, b) : `${df.format(a)} – ${df.format(b)}`;
+  } catch { range = `${DATA.trip.checkin} – ${DATA.trip.checkout}`; }
   const g = DATA.trip.guests || {};
   const guests = [g.adults ? T("adults", { n: g.adults }) : "", g.children ? T("children", { n: g.children }) : ""].filter(Boolean).join(", ");
   $("#h1").textContent = document.title;
@@ -239,7 +246,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
   $("#overview").textContent = DATA.overview || "";
   $("#foot-prices").textContent = T("foot_prices", { date: DATA.generated });
   const fx = DATA.trip.fx;
-  if (fx) { $("#fx").hidden = false; $("#fx").textContent = T("fx", { from: fx.from, to: fx.to, date: fx.date, rate: new Intl.NumberFormat(LANG, { maximumFractionDigits: 4 }).format(fx.rate) }); }
+  if (fx) { $("#fx").hidden = false; $("#fx").textContent = T("fx", { from: fx.from, to: fx.to, date: fx.date, rate: (NF({ maximumFractionDigits: 4 }) || { format: String }).format(fx.rate) }); }
 })();
 
 // ---- state: sort / filters

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-HOME = Path(os.environ.get("AIRBNB_FINDER_HOME") or Path.home() / ".airbnb-finder")
+HOME = Path(os.environ.get("AIRBNB_FINDER_HOME") or Path.home() / ".airbnb-finder").expanduser().resolve()
 VENV = HOME / "venv"
 STEPS = ["search", "context", "narrow", "details", "select", "photos", "page"]
 
@@ -27,34 +27,53 @@ def venv_python() -> Path:
     return VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def venv_healthy() -> bool:
+    """The venv's own python starts and imports our packages (a removed/upgraded base Python breaks it)."""
+    try:
+        return subprocess.run([str(venv_python()), "-c", "import curl_cffi, yaml, jsonschema"],
+                              capture_output=True, timeout=120).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def bootstrap() -> None:
     """Re-run this script inside our own venv, in UTF-8 mode (Windows defaults to a legacy code page)."""
     if sys.version_info < (3, 10):
-        sys.exit(f"Python 3.10+ is required, this is {sys.version.split()[0]}")
+        sys.exit(f"Python 3.10+ is required, this is {sys.version.split()[0]} ({sys.executable}). "
+                 "Install a newer Python (python.org, Homebrew, or the Microsoft Store) and run with it.")
     in_venv = Path(sys.prefix).resolve() == VENV.resolve()
     if in_venv and sys.flags.utf8_mode:
         return
     if not in_venv:
         req = ROOT / "requirements.txt"
-        want = hashlib.sha1(req.read_bytes()).hexdigest()
-        stamp = VENV / ".requirements.sha1"
-        if not venv_python().exists():
+        want = hashlib.sha256(req.read_bytes() + f"{sys.version_info[:2]} {sys.platform}".encode()).hexdigest()
+        stamp = VENV / ".requirements.sha256"
+        fresh = stamp.exists() and stamp.read_text().strip() == want
+        if not (fresh and venv_python().exists() and venv_healthy()):
+            import shutil
             import venv
-            print(f"First run: creating a virtual environment in {VENV} …", file=sys.stderr)
+            print(f"Setting up a virtual environment in {VENV} (one time) …", file=sys.stderr)
             try:
-                venv.create(VENV, with_pip=True)
-            except Exception as e:  # e.g. Debian/Ubuntu without python3-venv
-                sys.exit(f"Could not create a virtual environment ({e}). On Debian/Ubuntu: install python3-venv.")
-        if not stamp.exists() or stamp.read_text().strip() != want:
-            print("Installing dependencies …", file=sys.stderr)
-            subprocess.run([str(venv_python()), "-m", "pip", "install", "-q", "--disable-pip-version-check",
-                            "-r", str(req)], check=True)
+                venv.create(VENV, with_pip=True, clear=True)
+                subprocess.run([str(venv_python()), "-m", "pip", "install", "-q", "--disable-pip-version-check",
+                                "-r", str(req)], check=True)
+            except Exception as e:  # e.g. Debian/Ubuntu without python3-venv, no network, 32-bit Python
+                shutil.rmtree(VENV, ignore_errors=True)  # never leave a half-made venv behind
+                sys.exit(f"Could not set up the virtual environment: {e}\n"
+                         "On Debian/Ubuntu install python3-venv; you need 64-bit Python 3.10+ and internet access "
+                         "to PyPI. Then run the same command again.")
             stamp.write_text(want)
-    # subprocess instead of exec: os.execv on Windows detaches from the console
-    sys.exit(subprocess.run([str(venv_python()), "-X", "utf8", str(Path(__file__).resolve()), *sys.argv[1:]]).returncode)
+    cmd = [str(venv_python()), "-X", "utf8", str(Path(__file__).resolve()), *sys.argv[1:]]
+    if os.name != "nt":
+        os.execv(cmd[0], cmd)  # same process: Ctrl+C reaches the pipeline directly
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)  # the child gets Ctrl+C itself and stops cleanly
+    sys.exit(subprocess.run(cmd).returncode)
 
 
-if __name__ == "__main__" and not os.environ.get("AIRBNB_FINDER_NO_BOOTSTRAP"):
+NO_VENV = {"init"}  # stdlib only: works before the first install and offline
+if (__name__ == "__main__" and not os.environ.get("AIRBNB_FINDER_NO_BOOTSTRAP")
+        and not (len(sys.argv) > 1 and sys.argv[1] in NO_VENV)):
     bootstrap()
 
 import argparse  # noqa: E402
@@ -69,46 +88,95 @@ DERIVED = ["01_search.json", "01_search_all.json", "01b_context.json", "02_short
 
 
 def archive_if_trip_changed(cfg: dict, data: Path) -> None:
-    """Step outputs are skipped when present, so a date/guest change must move the old ones away.
-    Raw responses stay in data/raw (their cache keys already include dates and guests)."""
+    """Step outputs are skipped when present, so a date/guest/filter change must move the old ones away.
+    Raw responses stay in data/raw (their cache keys already include dates, guests and filters)."""
     from src.step1_search import trip_key
     stamp = data / "trip_key.txt"
     key = trip_key(cfg)
     old = stamp.read_text().strip() if stamp.exists() else None
     if old and old != key:
-        dest = data / f"archive-{old}"
-        dest.mkdir(exist_ok=True)
-        moved = [n for n in DERIVED if (data / n).exists()]
-        for n in moved:
-            (data / n).rename(dest / n)
-        log.warning("dates/guests changed (%s → %s): moved previous results to %s", old, key, dest)
-    stamp.write_text(key)
+        dest, n = data / f"archive-{old}", 2
+        while dest.exists():  # back to earlier dates: never merge into or overwrite an older archive
+            dest, n = data / f"archive-{old}-{n}", n + 1
+        dest.mkdir()
+        for name in DERIVED:
+            if (data / name).exists():
+                os.replace(data / name, dest / name)
+        log.warning("dates/guests/filters changed (%s → %s): moved previous results to %s", old, key, dest)
+    stamp.write_text(key)  # only after every move succeeded
+
+
+def deep_merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for k, v in (over or {}).items():
+        out[k] = deep_merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
 
 
 def load_config(path: Path) -> dict:
+    """The trip's config over the example's defaults, so deleting a technical key never breaks a step."""
     import yaml
-    cfg = yaml.safe_load(path.read_text())
+    if not path.exists():
+        raise SystemExit(f"{path} not found — create the trip with: run.py init <folder>")
+    defaults = yaml.safe_load((ROOT / "examples" / "config.example.yaml").read_text())
+    for k in ("dates", "zone", "anchors", "places"):  # trip-specific: never taken from the example
+        defaults.pop(k, None)
+    try:
+        user = yaml.safe_load(path.read_text()) or {}
+    except yaml.YAMLError as e:
+        raise SystemExit(f"{path}: not valid YAML: {e}")
+    cfg = deep_merge(defaults, user)
     # YAML turns 2026-11-10 into a date object; everything downstream wants ISO strings
     cfg["dates"] = {k: str(v) for k, v in (cfg.get("dates") or {}).items()}
+    disp = cfg.setdefault("display", {}) or {}
+    disp["language"] = str(disp.get("language") or "en").replace("_", "-").lower()
     validate_config(cfg)
     return cfg
 
 
+def _num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def validate_config(cfg: dict) -> None:
+    from datetime import date
     errs = []
+    d = {}
     for k in ("checkin", "checkout"):
-        v = str(cfg.get("dates", {}).get(k, ""))
-        if not v or "YYYY" in v:
-            errs.append(f"dates.{k} is not set")
+        v = str((cfg.get("dates") or {}).get(k, ""))
+        try:
+            d[k] = date.fromisoformat(v)
+        except ValueError:
+            errs.append(f"dates.{k}: expected YYYY-MM-DD, got {v!r}")
+    if len(d) == 2 and d["checkout"] <= d["checkin"]:
+        errs.append("dates: checkout must be after checkin")
+    if not _num((cfg.get("guests") or {}).get("adults")) or cfg["guests"]["adults"] < 1:
+        errs.append("guests.adults: at least 1")
+    if not (cfg.get("price") or {}).get("currency"):
+        errs.append("price.currency is required (e.g. USD)")
     for a in cfg.get("anchors") or []:
-        if a.get("name") in (None, "", "...") or not a.get("max_distance_m"):
-            errs.append(f"anchor {a.get('name')!r}: name, lat, lng and max_distance_m are required")
+        if a.get("name") in (None, "", "...") or not _num(a.get("lat")) or not _num(a.get("lng")) \
+                or not _num(a.get("max_distance_m")) or a["max_distance_m"] <= 0:
+            errs.append(f"anchor {a.get('name')!r}: name, lat, lng and max_distance_m (> 0) are required")
+    for pl in cfg.get("places") or []:
+        if not pl.get("name") or not _num(pl.get("lat")) or not _num(pl.get("lng")):
+            errs.append(f"place {pl.get('name')!r}: name, lat and lng are required")
     zone = cfg.get("zone") or {}
-    has_zone = any((zone.get("ne") or {}).values()) and any((zone.get("sw") or {}).values())
-    if not has_zone and not [a for a in cfg.get("anchors") or [] if a.get("max_distance_m")]:
+    half = any(any((zone.get(c) or {}).values()) for c in ("ne", "sw"))
+    full = all(any((zone.get(c) or {}).values()) for c in ("ne", "sw"))
+    if half and not full:
+        errs.append("zone: set both ne and sw corners (or neither)")
+    if full and not (zone["ne"]["lat"] > zone["sw"]["lat"] and zone["ne"]["lng"] > zone["sw"]["lng"]):
+        errs.append("zone: ne must be north-east of sw")
+    if not full and not cfg.get("anchors"):
         errs.append("either zone (ne/sw) or at least one anchor is required")
     if cfg.get("geometry_mode", "all") not in ("all", "any"):
         errs.append("geometry_mode: all or any")
+    if cfg.get("pets", "any") not in ("any", "prefer_none", "only_none"):
+        errs.append("pets: any, prefer_none or only_none")
+    for k in ("shortlist", "finalists"):
+        if not _num((cfg.get("funnel") or {}).get(k)) or cfg["funnel"][k] < 1:
+            errs.append(f"funnel.{k}: a positive number")
     if errs:
         raise SystemExit("config.yaml:\n  - " + "\n  - ".join(errs))
 
@@ -127,11 +195,15 @@ def geocode(query: str) -> None:
     """OpenStreetMap Nominatim, free and keyless; its rules: at most 1 request per second, a real User-Agent."""
     import json
     import urllib.parse
-    import urllib.request
+    from curl_cffi import requests  # brings its own CA bundle (python.org Python on macOS has none)
+    from src.fetch import USER_AGENT
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode({"q": query, "format": "json", "limit": 5})
-    req = urllib.request.Request(url, headers={"User-Agent": "airbnb-finder-skill/1.0 (trip planning)"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        hits = json.loads(r.read().decode("utf-8"))
+    r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+    if r.status_code != 200:
+        raise SystemExit(f"geocode: HTTP {r.status_code} from OpenStreetMap; try again in a minute")
+    hits = r.json()
+    if not hits:
+        print("nothing found — try adding the region or country")
     print(json.dumps([{"name": h.get("display_name"), "lat": round(float(h["lat"]), 5), "lng": round(float(h["lon"]), 5),
                        "type": f"{h.get('class')}/{h.get('type')}"} for h in hits], ensure_ascii=False, indent=1))
 
@@ -159,7 +231,7 @@ def main() -> int:
         ap.error("--trip <folder> is required (create one with: run.py init trips/<name>)")
 
     from src import model_steps, render, step1_search, step1b_context, step2_details, step3_photos
-    from src.fetch import BlockedError, Fetcher
+    from src.fetch import BlockedError, Fetcher, HTTPStatusError, NetworkError
     from src.model import ModelError
 
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
@@ -169,7 +241,14 @@ def main() -> int:
     cfg = load_config(trip / "config.yaml")
     data, out, prompts = trip / "data", trip / "output", ROOT / "prompts"
     model_steps.CRITERIA_FILE = trip / "criteria.md"
-    model_steps.LANGUAGE = ((cfg.get("display") or {}).get("language") or "en").lower()
+    model_steps.LANGUAGE = cfg["display"]["language"]
+    if errs := model_steps.check_criteria(cfg, prompts):
+        raise SystemExit("criteria:\n  - " + "\n  - ".join(errs))
+    if a.force and a.step != "all":
+        later = [x for x in STEPS[STEPS.index(a.step) + 1:] if x != "page"]
+        if later:
+            log.warning("only `%s` is redone; later steps (%s) keep their results until you rerun them with --force",
+                        a.step, ", ".join(later))
     data.mkdir(parents=True, exist_ok=True)
     archive_if_trip_changed(cfg, data)
     net = {**(cfg.get("network") or {}), "currency": cfg["price"].get("currency", "USD")}
@@ -192,7 +271,10 @@ def main() -> int:
             elif s == "photos":
                 step3_photos.run(cfg, data, f, a.force)
             elif s == "page":
-                model_steps.texts(cfg, data, prompts, a.force)
+                try:
+                    model_steps.texts(cfg, data, prompts, a.force)
+                except ModelError as e:  # the page works without the summary texts
+                    log.warning("page texts failed (%s): building the page without them", e)
                 res = render.run(cfg, data, out, f)
                 print("\nDone:")
                 for k, v in res.items():
@@ -203,6 +285,12 @@ def main() -> int:
     except FileNotFoundError as e:
         log.error("missing input file: %s — run the previous step first", e.filename)
         return 2
+    except (NetworkError, HTTPStatusError) as e:
+        log.error("network trouble in step `%s`: %s. Rerun the same command later — collected data is reused.", s, e)
+        return 2
+    except KeyboardInterrupt:
+        log.error("interrupted. Rerun the same command to continue — collected data is reused.")
+        return 130
     log.info("network requests this run: %d", f.network_requests)
     return 0
 

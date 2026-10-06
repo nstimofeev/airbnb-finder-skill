@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 
-from .fetch import BASE, Fetcher, GraphQLError, dig, extract_deferred_state, niobe_entry
+from .fetch import DEFERRED_RE, BASE, Fetcher, GraphQLError, HTTPStatusError, atomic_write, dig, extract_deferred_state, niobe_entry
 from .ophash import OpHashes
 from .step1_search import trip_key
 
@@ -203,8 +203,10 @@ def collect_reviews(fetch_page, want: int, sorted_worst_first: bool, short_retri
         new = 0
         for r in batch:
             pr = parse_review(r)
-            if pr["id"] not in seen:
-                seen.add(pr["id"])
+            # without an id (format change) fall back to the content, or every review would look like a duplicate
+            key = pr["id"] or (pr.get("date"), pr.get("rating"), (pr.get("text") or "")[:200])
+            if key not in seen:
+                seen.add(key)
                 out.append(pr)
                 new += 1
         offset += len(batch)
@@ -253,16 +255,18 @@ def fetch_cancellation(f: Fetcher, hashes: OpHashes, lid: str, cfg: dict, page_h
                  "checkOut": str(cfg["dates"]["checkout"]), "selectedCancellationPolicyId": None,
                  "includeVettedHouseRulesFields": False}
     op = "StaysPdpPoliciesQuery"
+    # network trouble and blocks propagate (the run stops, a rerun resumes); only "Airbnb doesn't answer
+    # this query" or an unreadable answer turn into "no cancellation data"
     try:
         try:
             data = f.graphql(op, hashes.get(op), variables, f"policies_{lid}_{trip_key(cfg)}")
         except GraphQLError:
             hashes.rediscover(op, page_html)
             data = f.graphql(op, hashes.get(op), variables, f"policies_{lid}_{trip_key(cfg)}")
-    except Exception as e:
+        return parse_cancellation(data)
+    except (GraphQLError, KeyError, TypeError, ValueError, AttributeError) as e:
         log.warning("%s: cancellation policy unavailable: %s", lid, e)
         return None, []
-    return parse_cancellation(data)
 
 
 def niobe_entry_key(state: dict | None, prefix: str) -> str | None:
@@ -283,8 +287,18 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
         out = out_dir / f"{lid}.json"
         if out.exists() and not force:
             continue
-        html = f.page(room_url(lid, cfg), f"room_{lid}_{trip_key(cfg)}")
+        try:
+            html = f.page(room_url(lid, cfg), f"room_{lid}_{trip_key(cfg)}", DEFERRED_RE)
+        except HTTPStatusError as e:
+            if e.status not in (404, 410):
+                raise
+            log.warning("step2 %s: listing no longer exists on Airbnb (HTTP %s), skipped", lid, e.status)
+            atomic_write(out, json.dumps({"id": lid, "gone": True}))
+            continue
         state = extract_deferred_state(html)
+        if state is None:  # a bot check or a redirect: not cached by page(), so a rerun tries again
+            log.warning("step2 %s: listing page came back without data, skipped for now — rerun `details` later", lid)
+            continue
         missing: set = set()
         card = parse_card(state, missing)
         card["cancellation_policy"], card["cancellation_terms"] = fetch_cancellation(f, hashes, lid, cfg, html)
@@ -292,7 +306,7 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
             missing.add("cancellation_policy")
         reviews, meta = fetch_reviews(f, hashes, lid, cfg, html, want, review_sort_options(state))
         rec = {"id": lid, **card, "reviews_meta": {"collected": len(reviews), **meta}, "reviews": reviews}
-        out.write_text(json.dumps(rec, ensure_ascii=False, indent=1))
+        atomic_write(out, json.dumps(rec, ensure_ascii=False, indent=1))
         log.info("step2 [%d/%d] %s: %d reviews (of %s, sort %s)%s", n, len(ids), lid, len(reviews), meta["total"],
                  meta["sort"], f"; missing: {', '.join(sorted(missing))}" if missing else "")
     return out_dir

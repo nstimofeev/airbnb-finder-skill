@@ -16,8 +16,10 @@ geometry_mode: all          # all = within reach of every anchor, any = of at le
 
 # Places the trip is about (trailheads, beaches, the office, a relative's home). Driving minutes to each
 # are computed for every listing; the first one is also used to judge the road in. Optional.
+# `private: true` keeps a place (or an anchor) off the shareable page.
 places: []
 #  - {name: "Sintra", lat: 38.7980, lng: -9.3880}
+#  - {name: "Grandma", lat: 38.7001, lng: -9.4002, private: true}
 
 price:
   max_total: 0              # for the whole stay, 0 = no limit
@@ -42,6 +44,7 @@ funnel:
   shortlist: 30             # how many listings the model keeps for the detailed check
   finalists: 8              # how many end up on the page
   extend_shortlist: false   # true: re-running `narrow --force` adds candidates instead of replacing them
+  narrow_max_listings: 400  # the model sees at most this many (best-rated first); keeps the prompt in bounds
 models:                     # claude CLI model aliases
   narrow: sonnet
   assess: sonnet
@@ -56,10 +59,11 @@ network:
   max_blocked_in_row: 3     # stop after this many refusals in a row
 context:
   enabled: true             # surroundings from OpenStreetMap: food, nature, neighbours, road surface
-  poi_radius_km: 30
+  poi_radius_km: 0          # 0 = automatic: 30 km around a zone, 5 km around anchors (city trips)
 bundle:
   photos_per_listing: 10    # photos downloaded per finalist for the offline page
   map_tiles_max: 300        # OpenStreetMap tiles downloaded for the offline map
+  max_zoom: 12              # OSM's tile policy forbids bulk downloads of detailed zooms
 artifact_bundle:            # smaller copy for claude.ai (fewer files)
   photos_per_listing: 5
   max_zoom: 12

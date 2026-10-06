@@ -3,7 +3,7 @@ from src import localize as lz
 
 def test_convert_text_euro_amounts():
     t = "Цена 360 € почти как у шале (€354), а №2 стоит 1,250 евро. Рейтинг 4.9 не трогать."
-    out = lz.convert_text(t, "EUR", 3.431, lz.money_fmt("ILS"), "ru")
+    out = lz.convert_text(t, "EUR", 3.431, lz.money_fmt("ILS", "ru"), "ru")
     assert "1\u202f235\u00a0₪" in out and "1\u202f215\u00a0₪" in out and "4\u202f289\u00a0₪" in out
     assert "€" not in out and "евро" not in out and "4.9" in out
 

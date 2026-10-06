@@ -16,8 +16,9 @@ import math
 import urllib.parse
 from pathlib import Path
 
-from .fetch import Fetcher
+from .fetch import Fetcher, HTTPStatusError, NetworkError, atomic_write
 from .geo import EARTH_R, BBox, bbox_around_anchors, haversine_m
+from .step1_search import zone_is_set
 
 log = logging.getLogger(__name__)
 
@@ -87,9 +88,24 @@ def count_within(lat: float, lng: float, pts: list[tuple[float, float]], radius:
 
 
 # ---- network -----------------------------------------------------------------------------------
+def overpass_ok(data: dict) -> bool:
+    """Overpass reports timeouts and memory limits inside a 200 answer; such partial data must not be cached."""
+    remark = str(data.get("remark") or "").lower()
+    return not any(w in remark for w in ("error", "timed out", "timeout", "out of memory"))
+
+
 def overpass(f: Fetcher, query: str, key: str) -> list[dict]:
+    """Elements for the query; on persistent trouble an empty list and a warning, not a crash."""
     q = "[out:json][timeout:180];" + query
-    data = f.get_json(OVERPASS + urllib.parse.quote(q), key, delay=(1.0, 2.0))
+    try:
+        data = f.get_json(OVERPASS + urllib.parse.quote(q), f"{key}_{hashlib.sha1(q.encode()).hexdigest()[:10]}",
+                          delay=(1.0, 2.0), timeout=210, valid=overpass_ok)
+    except (NetworkError, HTTPStatusError) as e:
+        log.warning("OpenStreetMap (Overpass) unavailable for %s: %s — surroundings will be incomplete; "
+                    "rerun `context --force` later", key, e)
+        return []
+    if not overpass_ok(data):
+        log.warning("Overpass %s: %s — surroundings incomplete; rerun `context --force` later", key, data.get("remark"))
     return data.get("elements") or []
 
 
@@ -101,9 +117,13 @@ def osrm_table(f: Fetcher, src: tuple[float, float], dests: list[tuple[float, fl
         coords = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in [src] + chunk)
         url = f"{OSRM}/table/v1/driving/{coords}?sources=0&annotations=duration,distance"
         # the cache key must depend on the exact points, or a changed point set would reuse stale times
-        d = f.get_json(url, f"{key}_{i}_{hashlib.sha1(coords.encode()).hexdigest()[:10]}")
-        if d.get("code") != "Ok":
-            raise RuntimeError(f"OSRM table: {d.get('code')} {d.get('message')}")
+        d = f.get_json(url, f"{key}_{i}_{hashlib.sha1(coords.encode()).hexdigest()[:10]}", return_statuses=(400,),
+                       valid=lambda d: d.get("code") == "Ok")
+        if d.get("code") != "Ok":  # e.g. NoSegment: the point is far from any road
+            log.warning("OSRM table %s: %s %s — no driving times for this listing", key, d.get("code"), d.get("message"))
+            durations += [None] * len(chunk)
+            distances += [None] * len(chunk)
+            continue
         durations += d["durations"][0][1:]
         distances += d["distances"][0][1:]
         snap = (d.get("sources") or [{}])[0].get("distance", snap)
@@ -113,7 +133,7 @@ def osrm_table(f: Fetcher, src: tuple[float, float], dests: list[tuple[float, fl
 def osrm_route_nodes(f: Fetcher, src: tuple[float, float], dst: tuple[float, float], key: str):
     url = (f"{OSRM}/route/v1/driving/{src[1]:.6f},{src[0]:.6f};{dst[1]:.6f},{dst[0]:.6f}"
            f"?overview=false&annotations=nodes,distance")
-    d = f.get_json(url, key)
+    d = f.get_json(url, key, return_statuses=(400,))  # OSRM answers NoRoute with HTTP 400
     if d.get("code") != "Ok" or not d.get("routes"):
         return None
     ann = d["routes"][0]["legs"][0]["annotation"]
@@ -123,7 +143,7 @@ def osrm_route_nodes(f: Fetcher, src: tuple[float, float], dst: tuple[float, flo
 # ---- main --------------------------------------------------------------------------------------
 def zone_bbox(cfg: dict) -> BBox:
     zone = cfg.get("zone") or {}
-    if zone.get("ne") and zone.get("sw") and any(zone["ne"].values()):
+    if zone_is_set(zone):
         return BBox(zone["ne"]["lat"], zone["ne"]["lng"], zone["sw"]["lat"], zone["sw"]["lng"])
     return bbox_around_anchors(cfg.get("anchors") or [])
 
@@ -149,16 +169,26 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
     ctx_cfg = cfg.get("context") or {}
     if ctx_cfg.get("enabled") is False:
         log.info("context: disabled in config")
-        out.write_text("{}")
+        atomic_write(out, "{}")
         return out
+    # surroundings depend on the places, the area and the radius: recompute everything when they change
+    fp = hashlib.sha1(json.dumps([cfg.get("places"), cfg.get("zone"), cfg.get("anchors"), ctx_cfg.get("poi_radius_km")],
+                                 sort_keys=True, default=str).encode()).hexdigest()[:12]
+    fp_file = data_dir / "01b_context.inputs"
+    if out.exists() and fp_file.exists() and fp_file.read_text().strip() != fp and not force:
+        log.info("context: places/area/radius changed since the last run — recomputing surroundings")
+        force = True
     have = json.loads(out.read_text()) if out.exists() and not force else {}
+    atomic_write(fp_file, fp)
     listings = json.loads((data_dir / "01_search.json").read_text())
     todo = [l for l in listings if l["id"] not in have and l["lat"] is not None]
     if not todo:
         log.info("context: all %d listings done", len(listings))
         return out
     zone = zone_bbox(cfg)
-    reach_m = float(ctx_cfg.get("poi_radius_km", 30)) * 1000
+    # regional trips (a zone) look 30 km around for trails and food; city trips (anchors only) 5 km
+    default_km = 30 if zone_is_set(cfg.get("zone")) else 5
+    reach_m = float(ctx_cfg.get("poi_radius_km") or default_km) * 1000
     wide, near = pad_bbox(zone, reach_m), pad_bbox(zone, 3000)
 
     food = [e for e in overpass(f, f'nwr["amenity"~"^({"|".join(FOOD)})$"]({ov_bbox(wide)});out tags center;', "ov_food")]
@@ -201,7 +231,11 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
         by_dist = sorted((p for p in nat_pts if p["ll"][0] is not None), key=lambda p: haversine_m(*here, *p["ll"]))
         cand_nat = [p for p in by_dist if p["kind"] != "peak"][:40] + [p for p in by_dist if p["kind"] == "peak"][:15]
         dests = cand_food + cand_nat + places
-        res, snap = osrm_table(f, here, [p["ll"] for p in dests], f"osrm_table_{l['id']}")
+        try:
+            res, snap = osrm_table(f, here, [p["ll"] for p in dests], f"osrm_table_{l['id']}")
+        except (NetworkError, HTTPStatusError) as e:  # not stored: the next run tries this listing again
+            log.warning("routing server unavailable for %s: %s", l["id"], e)
+            continue
         timed = []
         for p, (dur, dist) in zip(dests, res):
             if dur is None:
@@ -234,14 +268,18 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
             "access": None,
         }
         if hub:
-            r = osrm_route_nodes(f, here, (hub["lat"], hub["lng"]), f"osrm_route_{l['id']}_{hub['lat']:.4f}_{hub['lng']:.4f}")
+            try:
+                r = osrm_route_nodes(f, here, (hub["lat"], hub["lng"]), f"osrm_route_{l['id']}_{hub['lat']:.4f}_{hub['lng']:.4f}")
+            except (NetworkError, HTTPStatusError) as e:
+                log.warning("route to %s unavailable for %s: %s", hub["name"], l["id"], e)
+                r = None
             if r:
                 nodes, dists, dur, dist = r
                 rec["access"] = {"to": hub["name"], "min": round(dur / 60, 1), "km": round(dist / 1000, 1),
                                  "first_5km_m": route_surface(nodes, dists, idx)}
         have[l["id"]] = rec
         if n % 20 == 0 or n == len(todo):
-            out.write_text(json.dumps(have, ensure_ascii=False, indent=1))
+            atomic_write(out, json.dumps(have, ensure_ascii=False, indent=1))
             log.info("context [%d/%d]", n, len(todo))
-    out.write_text(json.dumps(have, ensure_ascii=False, indent=1))
+    atomic_write(out, json.dumps(have, ensure_ascii=False, indent=1))
     return out

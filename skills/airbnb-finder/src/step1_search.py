@@ -9,7 +9,7 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
-from .fetch import BASE, Fetcher, dig, extract_deferred_state, niobe_entry
+from .fetch import DEFERRED_RE, atomic_write, BASE, Fetcher, dig, extract_deferred_state, niobe_entry
 from .geo import BBox, FUZZ_M, bbox_around_anchors, check_anchors
 
 log = logging.getLogger(__name__)
@@ -51,9 +51,10 @@ def decode_listing_id(gid: str | None) -> str | None:
         return None
     try:
         raw = base64.b64decode(gid + "=" * (-len(gid) % 4)).decode()
-        return raw.rsplit(":", 1)[-1]
+        lid = raw.rsplit(":", 1)[-1]
     except Exception:
-        return gid if gid.isdigit() else None
+        lid = gid
+    return lid if lid.isdigit() else None  # ids become file names: digits only
 
 
 def search_results(state: dict | None) -> dict | None:
@@ -159,10 +160,18 @@ def guests_for_search(cfg: dict) -> tuple[int, int]:
     return adults, children
 
 
+def zone_is_set(zone: dict | None) -> bool:
+    """Both corners given and non-zero (a half-filled zone would stretch the box down to 0,0)."""
+    zone = zone or {}
+    return all(any((zone.get(c) or {}).get(k) for k in ("lat", "lng")) for c in ("ne", "sw"))
+
+
 def trip_key(cfg: dict) -> str:
-    """Prices and availability depend on dates and guests: they must be part of every cache key."""
+    """Prices and availability depend on dates, guests and the room-type filter: part of every cache key."""
     adults, children = guests_for_search(cfg)
-    return f"{cfg['dates']['checkin']}_{cfg['dates']['checkout']}_{adults}a{children}c_{cfg['price'].get('currency', 'USD')}"
+    rts = sorted(rt for rt in cfg.get("room_types") or [] if rt in ROOM_TYPES)
+    rt = "_" + "-".join(r.replace("_", "") for r in rts) if rts and rts != ["entire_home"] else ""
+    return f"{cfg['dates']['checkin']}_{cfg['dates']['checkout']}_{adults}a{children}c_{cfg['price'].get('currency', 'USD')}{rt}"
 
 
 def search_url(cfg: dict, bbox: BBox, cursor: str | None = None) -> str:
@@ -187,7 +196,7 @@ def search_url(cfg: dict, bbox: BBox, cursor: str | None = None) -> str:
 def crawl(f: Fetcher, cfg: dict, bbox: BBox, nights: int, room_type: str | None,
           found: dict, missing: set, depth: int = 0, stats: dict | None = None) -> None:
     stats = stats if stats is not None else {}
-    html = f.page(search_url(cfg, bbox), f"search_{trip_key(cfg)}_{bbox.key()}_p0")
+    html = f.page(search_url(cfg, bbox), f"search_{trip_key(cfg)}_{bbox.key()}_p0", DEFERRED_RE)
     results = search_results(extract_deferred_state(html))
     if results is None:
         log.error("search page without results JSON for box %s (structure changed or blocked)", bbox.key())
@@ -206,7 +215,7 @@ def crawl(f: Fetcher, cfg: dict, bbox: BBox, nights: int, room_type: str | None,
         stats["capped_boxes"] = stats.get("capped_boxes", 0) + 1
     pages = [results]
     for i, c in enumerate(cursors[1:], start=1):
-        res = search_results(extract_deferred_state(f.page(search_url(cfg, bbox, c), f"search_{trip_key(cfg)}_{bbox.key()}_p{i}")))
+        res = search_results(extract_deferred_state(f.page(search_url(cfg, bbox, c), f"search_{trip_key(cfg)}_{bbox.key()}_p{i}", DEFERRED_RE)))
         if res is None:
             log.warning("page %d of box %s unreadable, skipping", i, bbox.key())
             continue
@@ -258,7 +267,7 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
             log.warning("anchor %r: max_distance_m=%s < 300 m; Airbnb fuzzes coordinates by ~150 m, "
                         "expect many near_boundary listings", a["name"], a["max_distance_m"])
     zone = cfg.get("zone") or {}
-    if zone.get("ne") and zone.get("sw") and any(zone["ne"].values()):
+    if zone_is_set(zone):
         bbox = BBox(zone["ne"]["lat"], zone["ne"]["lng"], zone["sw"]["lat"], zone["sw"]["lng"])
     elif anchors:
         bbox = bbox_around_anchors(anchors)
@@ -276,6 +285,6 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
         log.warning("fields not found in some search results (written as null): %s", ", ".join(sorted(missing)))
     kept, rejected = mechanical_filter(list(found.values()), cfg)
     log.info("step1: %d unique listings, kept %d, rejected %s, %s", len(found), len(kept), rejected, stats)
-    (data_dir / "01_search_all.json").write_text(json.dumps(list(found.values()), ensure_ascii=False, indent=1))
-    out.write_text(json.dumps(kept, ensure_ascii=False, indent=1))
+    atomic_write((data_dir / "01_search_all.json"), json.dumps(list(found.values()), ensure_ascii=False, indent=1))
+    atomic_write(out, json.dumps(kept, ensure_ascii=False, indent=1))
     return out

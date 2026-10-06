@@ -5,7 +5,7 @@ import json
 import logging
 from pathlib import Path
 
-from .fetch import Fetcher, dig, extract_deferred_state, niobe_entry
+from .fetch import atomic_write, Fetcher, dig, extract_deferred_state, niobe_entry
 from .step1_search import trip_key
 from .step2_details import room_url
 
@@ -56,5 +56,5 @@ def run(cfg: dict, data_dir: Path, f: Fetcher, force: bool = False) -> Path:
             log.warning("%s: no photos found (page structure changed?)", lid)
         have[lid] = photos
         log.info("step3 %s: %d photos", lid, len(photos))
-    out.write_text(json.dumps(have, ensure_ascii=False, indent=1))
+    atomic_write(out, json.dumps(have, ensure_ascii=False, indent=1))
     return out

@@ -11,7 +11,7 @@ import logging
 import re
 from pathlib import Path
 
-from .fetch import Fetcher
+from .fetch import atomic_write, Fetcher
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class OpHashes:
                                "the site structure changed, the parser needs an update.")
         log.info("new hash for %s: %s", name, found)
         self.hashes[name] = found
-        self.store.write_text(json.dumps(self.hashes, indent=1))
+        atomic_write(self.store, json.dumps(self.hashes, indent=1))
         return found
 
 

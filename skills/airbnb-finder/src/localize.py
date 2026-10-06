@@ -13,8 +13,8 @@ import re
 from datetime import date
 from pathlib import Path
 
-from .fetch import Fetcher
-from .model import call
+from .fetch import atomic_write, Fetcher
+from .model import ModelError, call
 from .model_steps import language_name
 
 log = logging.getLogger(__name__)
@@ -35,9 +35,15 @@ NON_RU_CYR = re.compile(r"[ђјљњћџЂЈЉЊЋЏіїєґІЇЄҐўЎ]")  # Se
 
 
 # ---- currency -----------------------------------------------------------------------------------
-def fx_rate(f: Fetcher, src: str, dst: str) -> tuple[float, str]:
-    d = f.get_json(f"https://api.frankfurter.app/latest?from={src}&to={dst}", f"fx_{src}_{dst}_{date.today()}")
-    return float(d["rates"][dst]), d["date"]
+def fx_rate(f: Fetcher, src: str, dst: str) -> tuple[float, str] | None:
+    """ECB daily rate via frankfurter (free, no key); None for currencies the ECB doesn't publish."""
+    try:
+        d = f.get_json(f"https://api.frankfurter.dev/v1/latest?base={src}&symbols={dst}", f"fx_{src}_{dst}_{date.today()}",
+                       valid=lambda d: dst in (d.get("rates") or {}))
+        return float(d["rates"][dst]), d["date"]
+    except Exception as e:  # unknown currency (404), no network, changed format
+        log.warning("no exchange rate %s → %s (%s): prices stay in %s", src, dst, e, src)
+        return None
 
 
 def money_re(cur: str, lang: str = "en") -> re.Pattern:
@@ -58,7 +64,7 @@ def convert_text(text: str, cur: str, rate: float, fmt, lang: str = "en") -> str
     return money_re(cur, lang).sub(sub, text)
 
 
-def money_fmt(cur: str, lang: str = "ru"):
+def money_fmt(cur: str, lang: str = "en"):
     """English: '$1,235'; other languages: '1 235 ₪' (narrow no-break space groups, symbol after)."""
     sym = SYMBOL.get(cur, cur)
     if lang == "en":
@@ -98,10 +104,10 @@ Rules:
 - Ordinary text (amenities, house rules, cancellation policy, photo captions, guest reviews) — natural,
   short {LANG}, no bureaucratic wording. Translate review quotes close to the meaning, keeping the tone;
   keep a leading year like "(2024)".
-- Listing titles: translate the meaning ("Log Cabin Petra in the National Park" → the {LANG} for that).
+- Listing titles: translate the meaning ("Log Cabin Luna by the Lake" → the {LANG} for that).
 - Proper names (restaurants, villages, mountains, viewpoints, hosts' names): keep them recognisable; if {LANG}
   uses a different script, transliterate them the conventional way. Generic words inside names are translated
-  ("Vidikovac Banjska stena" → "<{LANG} for viewpoint> Banjska Stena").
+  ("Miradouro da Graça" → "<{LANG} for viewpoint> da Graça").
 - Times like 4:00 PM → the {LANG} convention. Add nothing of your own.
 - If a string is already in {LANG}, return it unchanged, except for words in other languages inside it:
   translate those ("OSM" → "map data", "ok" → "fine", "warn" → "uncertain", "fail" → "fails",
@@ -130,7 +136,7 @@ def translate(strings: list[str], lang: str, cache_path: Path, cfg: dict, log_di
         for k, s in enumerate(chunk):
             if k in got and got[k].strip():
                 cache[s] = got[k].strip()
-        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1))
+        atomic_write(cache_path, json.dumps(cache, ensure_ascii=False, indent=1))
         log.info("translate: %d/%d strings", min(i + 250, len(todo)), len(todo))
     return cache
 
@@ -145,8 +151,11 @@ def localize(data: dict, cfg: dict, data_dir: Path, f: Fetcher) -> dict:
     # -- currency
     src = data["trip"].get("currency") or "USD"
     dst = loc.get("currency") or src
+    fx = fx_rate(f, src, dst) if dst != src else None
+    if fx is None:
+        dst = src
     if dst != src:
-        rate, day = fx_rate(f, src, dst)
+        rate, day = fx
         conv = lambda v: None if v is None else round(v * rate)
         data["trip"]["max_total"] = conv(data["trip"].get("max_total") or None)
         for L in data["listings"]:
@@ -155,7 +164,10 @@ def localize(data: dict, cfg: dict, data_dir: Path, f: Fetcher) -> dict:
         data["trip"]["currency"] = dst
         data["trip"]["fx"] = {"from": src, "to": dst, "rate": rate, "date": day}
         log.info("prices: %s → %s at %.4f (ECB %s)", src, dst, rate, day)
-    data = _translate_all(data, cfg, data_dir, lang)
+    try:
+        data = _translate_all(data, cfg, data_dir, lang)
+    except ModelError as e:  # the page is still useful untranslated
+        log.warning("translation into %s failed (%s): untranslated strings stay as they are", lang, e)
     if dst != src:
         _map_text(data, lambda t: convert_text(t, src, data["trip"]["fx"]["rate"], money_fmt(dst, lang), lang))
     return data
