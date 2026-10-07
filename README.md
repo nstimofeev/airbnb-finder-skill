@@ -51,6 +51,9 @@ funnel in the background and hands you the page.
 The first run creates a virtual environment in `~/.airbnb-finder/venv` (override with
 `AIRBNB_FINDER_HOME`) and installs `curl_cffi`, `PyYAML` and `jsonschema` there.
 
+Other agents: the skill uses the open Agent Skills format, but its model steps call Claude Code today.
+Running it under OpenAI Codex and similar hosts is planned — see [docs/PORTING-CODEX.md](docs/PORTING-CODEX.md).
+
 ## Manual use
 
 ```
