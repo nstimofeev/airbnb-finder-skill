@@ -94,7 +94,7 @@ def still_foreign(src: str, got: str, lang: str) -> bool:
     return lang == "ru" and got == src and needs_translation(got, lang)
 
 
-TIME = re.compile(r"\b\d{1,2}[:.]\d{2}\s*(?:[AaPp]\.?[Mm]\.?)?|\b\d{1,2}\s*[AaPp]\.?[Mm]\b")
+TIME = re.compile(r"\b\d{1,2}:\d{2}\s*(?:[AaPp]\.?[Mm]\.?)?|\b\d{1,2}\s*[AaPp]\.?[Mm]\b")
 
 
 def numbers(s: str) -> list[str]:
@@ -109,7 +109,8 @@ def translation_ok(src: str, got: str, lang: str) -> bool:
     """A translation that drops or changes a number, or is suspiciously longer/shorter than its source,
     is not shown — the original is (the translate pass sees untrusted text and could be steered)."""
     have = numbers(got)
-    for n in numbers(src):
+    # single digits may become words ("2 nights" → "two-night"); bigger numbers and decimals must survive
+    for n in (x for x in numbers(src) if len(x) > 1):
         if n in have:
             have.remove(n)
         else:
@@ -176,7 +177,8 @@ def translate(strings: list[str], lang: str, cache_path: Path, cfg: dict, log_di
         log.info("translate: %d/%d strings", min(i + 250, len(todo)), len(todo))
     if rejected:
         log.warning("translate: %d translation(s) didn't keep the original's numbers or length — shown in the original", rejected)
-    return cache
+    # translations cached by older versions get the same check
+    return {k: v for k, v in cache.items() if translation_ok(k, v, lang)}
 
 
 QUOTE_CORE = re.compile(r"\s*\[[^\]]*\]\s*$")
