@@ -218,7 +218,9 @@ const MONEY = NF({ style: "currency", currency: cur, maximumFractionDigits: 0 })
 const money = (v) => v == null ? "—" : MONEY ? MONEY.format(v) : `${Math.round(v)} ${cur}`;
 const dist = (m) => m == null ? "—" : m < 1000 ? T("m", { n: m }) : T("km", { n: num1(m / 1000) });
 const VERDICT = { ok: T("v_ok"), warn: T("v_warn"), fail: T("v_fail") };
-const vchip = (v) => v ? `<span class="v v-${v}">${esc(VERDICT[v] || v)}</span>` : "—";
+const vchip = (v, unconfirmed) => !v ? "—" : unconfirmed
+  ? `<span class="v v-warn" title="${TH("unconfirmed")}">${esc(VERDICT[v] || v)}?</span>`
+  : `<span class="v v-${v}">${esc(VERDICT[v] || v)}</span>`;
 const SUBR = Object.fromEntries(["cleanliness", "accuracy", "checkin", "communication", "location", "value"].map((k) => [k, T(`sub_${k}`)]));
 const L = DATA.listings;
 const HAS_CTX = L.some((x) => x.context);
@@ -275,7 +277,7 @@ function visible() {
     meals: (x) => -(meals15(x) ?? -1), unpaved: (x) => unpavedKm(x) ?? 99, neigh: (x) => bld150(x) ?? 999,
   };
   DATA.anchors.forEach((a, i) => by[`d${i}`] = (x) => x.distances_m?.[a.name] ?? 1e9);
-  DATA.criteria.forEach((c) => by[`c:${c.key}`] = (x) => ({ ok: 0, warn: 1, fail: 2 }[x.criteria[c.key]?.verdict] ?? 3));
+  DATA.criteria.forEach((c) => by[`c:${c.key}`] = (x) => ({ ok: 0, warn: 1, fail: 2 }[x.criteria[c.key]?.verdict] ?? 3) + (x.criteria[c.key]?.unconfirmed ? 0.5 : 0));
   const f = by[key] || by.rank;
   return list.slice().sort((a, b) => f(a) - f(b) || a.rank - b.rank);
 }
@@ -295,7 +297,7 @@ function renderTable(list) {
     <td>${x.pets_allowed === false ? TH("pets_no") : x.pets_allowed === true ? `<span class="near">${TH("pets_yes")}</span>` : "—"}</td>
     ${DATA.anchors.map((a) => `<td class="num">${dist(x.distances_m?.[a.name])}${x.near_boundary ? "*" : ""}</td>`).join("")}
     ${HAS_CTX ? `<td class="num">${meals15(x) ?? "—"}</td><td class="num">${km1(unpavedKm(x))}</td><td class="num">${bld150(x) ?? "—"}</td>` : ""}
-    ${DATA.criteria.map((c) => `<td>${vchip(x.criteria[c.key]?.verdict)}</td>`).join("")}
+    ${DATA.criteria.map((c) => `<td>${vchip(x.criteria[c.key]?.verdict, x.criteria[c.key]?.unconfirmed)}</td>`).join("")}
   </tr>`).join("");
   $("#cmp").innerHTML = head + `<tbody>${rows || `<tr><td colspan="${cols.length}" class="muted">${TH("empty_filter")}</td></tr>`}</tbody>`;
   $("#cmp").querySelectorAll("button[data-sort]").forEach((b) => b.onclick = () => { tableSort = b.dataset.sort; render(); });
@@ -344,7 +346,7 @@ function card(x) {
   const crit = DATA.criteria.map((c) => {
     const v = x.criteria[c.key] || {};
     const qs = (v.quotes || []).map(quoteHtml).join("");
-    return `<div class="crit-row"><div class="crit-name">${esc(c.label)} ${vchip(v.verdict)}</div><div>${esc(v.note || "")}${qs}</div></div>`;
+    return `<div class="crit-row"><div class="crit-name">${esc(c.label)} ${vchip(v.verdict, v.unconfirmed)}</div><div>${v.unconfirmed ? `<span class="near">${TH("unconfirmed")}.</span> ` : ""}${esc(v.note || "")}${qs}</div></div>`;
   }).join("");
   const groups = {};
   (x.amenities || []).forEach((a) => (groups[a.category || T("amen_other")] ||= []).push(a));

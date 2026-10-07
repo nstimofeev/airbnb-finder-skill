@@ -20,7 +20,7 @@ from pathlib import Path
 from .fetch import atomic_write, Fetcher
 from .localize import localize
 from .model import ModelError, call
-from .model_steps import language_name
+from .model_steps import language_name, mark_unconfirmed
 from .step3_photos import caption_text
 from .geo import EARTH_R, bbox_around_anchors
 
@@ -123,7 +123,7 @@ def assemble(cfg: dict, data_dir: Path) -> dict:
             "house_rules": d.get("house_rules", []), "safety_and_property": d.get("safety_and_property", []),
             "host": d.get("host", {}), "pets_allowed": d.get("pets_allowed"), "cancellation_policy": d.get("cancellation_policy"),
             "reviews_meta": d.get("reviews_meta", {}),
-            "criteria": f.get("criteria", {}),
+            "criteria": mark_unconfirmed(f.get("criteria", {})),
             "context": hide_private(ctx.get(lid), private),
             "photos": [{**p, "caption": caption_text(p.get("caption"))} for p in photos.get(lid, [])],
         })

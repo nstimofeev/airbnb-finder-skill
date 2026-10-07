@@ -54,12 +54,12 @@ def test_annotated_quotes_are_translated_even_if_they_look_english(tmp_path, mon
         lines = [l for l in prompt.splitlines() if l.startswith('{"i"')]
         seen.extend(lines)
         import json as j
-        return {"items": [{"i": j.loads(l)["i"], "t": "translated"} for l in lines]}
+        return {"items": [{"i": j.loads(l)["i"], "t": "(2026) The access road is fine to drive."} for l in lines]}
     monkeypatch.setattr(lz, "call", fake_call)
     q = "(2026) Der Zufahrtsweg ist gut befahrbar."
     data = {"overview": "", "anchors": [], "places": [], "criteria": [],
             "listings": [{"criteria": {"road": {"note": "Fine road", "quotes": [{"text": q + " [Дорога хорошая]"}]}}}]}
     out = lz._translate_all(data, {}, tmp_path, "en")
     qq = out["listings"][0]["criteria"]["road"]["quotes"][0]
-    assert qq["text"] == "translated" and qq["orig"] == q
+    assert qq["text"] == "(2026) The access road is fine to drive." and qq["orig"] == q
     assert not any("Fine road" in l for l in seen)          # plain English note is left alone

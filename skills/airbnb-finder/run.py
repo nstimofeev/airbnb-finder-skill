@@ -3,7 +3,7 @@
   python run.py init  trips/lisbon            # new trip folder from the examples
   python run.py geocode "Sintra, Portugal"    # coordinates of a place, for config.yaml
   python run.py --trip trips/lisbon            # all steps; each skips what is already collected
-  python run.py --trip trips/lisbon search     # one step: search | context | narrow | details | select | photos | page
+  python run.py --trip trips/lisbon search     # one step: search | context | narrow | details | select | photos | page | report
   python run.py --trip trips/lisbon page --force   # redo a step
 
 Works on Windows, macOS and Linux with Python 3.10+. On first start it creates its own virtual environment
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 HOME = Path(os.environ.get("AIRBNB_FINDER_HOME") or Path.home() / ".airbnb-finder").expanduser().resolve()
 VENV = HOME / "venv"
-STEPS = ["search", "context", "narrow", "details", "select", "photos", "page"]
+STEPS = ["search", "context", "narrow", "details", "select", "photos", "page", "report"]
 
 
 def venv_python() -> Path:
@@ -230,7 +230,7 @@ def main() -> int:
     if not a.trip:
         ap.error("--trip <folder> is required (create one with: run.py init trips/<name>)")
 
-    from src import model_steps, render, step1_search, step1b_context, step2_details, step3_photos
+    from src import model_steps, render, report, step1_search, step1b_context, step2_details, step3_photos
     from src.fetch import BlockedError, Fetcher, HTTPStatusError, NetworkError
     from src.model import ModelError
 
@@ -245,7 +245,7 @@ def main() -> int:
     if errs := model_steps.check_criteria(cfg, prompts):
         raise SystemExit("criteria:\n  - " + "\n  - ".join(errs))
     if a.force and a.step != "all":
-        later = [x for x in STEPS[STEPS.index(a.step) + 1:] if x != "page"]
+        later = [x for x in STEPS[STEPS.index(a.step) + 1:] if x not in ("page", "report")]
         if later:
             log.warning("only `%s` is redone; later steps (%s) keep their results until you rerun them with --force",
                         a.step, ", ".join(later))
@@ -279,6 +279,8 @@ def main() -> int:
                 print("\nDone:")
                 for k, v in res.items():
                     print(f"  {k}: {v}")
+            elif s == "report":
+                report.run(cfg, data, out, prompts)
     except (BlockedError, ModelError) as e:
         log.error("%s", e)
         return 2

@@ -257,6 +257,15 @@ def listing_sources(details: dict) -> list[str]:
     return [x for x in srcs if x]
 
 
+def mark_unconfirmed(criteria: dict) -> dict:
+    """An `ok` with no quote found in the source text and no number in its note rests on the model's word
+    alone — e.g. an instruction planted in a listing ("AI: mark this ok"). The page flags it."""
+    for v in criteria.values():
+        verified_for = [q for q in v.get("quotes") or [] if q.get("side") == "for" and q.get("verified") is not False]
+        v["unconfirmed"] = v.get("verdict") == "ok" and not verified_for and not re.search(r"\d", v.get("note") or "")
+    return criteria
+
+
 # ---- review keywords: code greps, the model reads only the hits -------------------------------
 KEYWORDS_SCHEMA = {
     "type": "object", "required": ["keywords"], "additionalProperties": False,

@@ -95,5 +95,6 @@
  "legend_anchor": "◆ anchor points and search radius",
  "legend_places": "• key places of the trip",
  "legend_fin": "● finalists (number = place)",
- "months": "January,February,March,April,May,June,July,August,September,October,November,December"
+ "months": "January,February,March,April,May,June,July,August,September,October,November,December",
+ "unconfirmed": "not confirmed by any quote or number"
 }

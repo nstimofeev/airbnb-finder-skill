@@ -94,6 +94,33 @@ def still_foreign(src: str, got: str, lang: str) -> bool:
     return lang == "ru" and got == src and needs_translation(got, lang)
 
 
+TIME = re.compile(r"\b\d{1,2}[:.]\d{2}\s*(?:[AaPp]\.?[Mm]\.?)?|\b\d{1,2}\s*[AaPp]\.?[Mm]\b")
+
+
+def numbers(s: str) -> list[str]:
+    """Numbers in a text, independent of digit grouping and decimal mark: '2,000 m²' / '2 000' → '2000',
+    '4,9' / '4.9' → '4.9'. Clock times are dropped: translating '4:00 PM' to '16:00' is expected."""
+    s = TIME.sub(" ", s)
+    s = re.sub(r"(?<=\d)[\s,.\u00a0\u202f'’](?=\d{3}(?!\d))", "", s)
+    return sorted(m.replace(",", ".") for m in re.findall(r"\d+(?:[.,]\d+)?", s))
+
+
+def translation_ok(src: str, got: str, lang: str) -> bool:
+    """A translation that drops or changes a number, or is suspiciously longer/shorter than its source,
+    is not shown — the original is (the translate pass sees untrusted text and could be steered)."""
+    have = numbers(got)
+    for n in numbers(src):
+        if n in have:
+            have.remove(n)
+        else:
+            return False
+    if len(src) >= 40:
+        lo, hi = (0.15, 2.0) if LANG_SCRIPT.get(lang) == "cjk" else (0.4, 2.5)
+        if not lo <= len(got) / len(src) <= hi:
+            return False
+    return True
+
+
 TR_SCHEMA = {"type": "object", "required": ["items"], "additionalProperties": False,
              "properties": {"items": {"type": "array", "items": {
                  "type": "object", "required": ["i", "t"], "additionalProperties": False,
@@ -124,10 +151,13 @@ def translate(strings: list[str], lang: str, cache_path: Path, cfg: dict, log_di
               force: set[str] = frozenset()) -> dict[str, str]:
     """`force`: strings known to be foreign whatever they look like (quotes the model annotated)."""
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
-    todo = [s for s in dict.fromkeys(strings)
-            if (s in force or needs_translation(s, lang)) and (s not in cache or still_foreign(s, cache[s], lang))]
+    rej_path = cache_path.with_name(cache_path.stem + ".rejected.json")
+    rejected_before = set(json.loads(rej_path.read_text())) if rej_path.exists() else set()
+    todo = [s for s in dict.fromkeys(strings) if s not in rejected_before
+            and (s in force or needs_translation(s, lang)) and (s not in cache or still_foreign(s, cache[s], lang))]
     m = cfg.get("models") or {}
     head = TR_PROMPT.replace("{LANG}", language_name(lang))
+    rejected = 0
     for n, i in enumerate(range(0, len(todo), 250)):
         chunk = todo[i:i + 250]
         prompt = head + "\n".join(json.dumps({"i": k, "s": s}, ensure_ascii=False) for k, s in enumerate(chunk))
@@ -135,9 +165,17 @@ def translate(strings: list[str], lang: str, cache_path: Path, cfg: dict, log_di
         got = {it["i"]: it["t"] for it in res["items"] if 0 <= it["i"] < len(chunk)}
         for k, s in enumerate(chunk):
             if k in got and got[k].strip():
-                cache[s] = got[k].strip()
+                if translation_ok(s, got[k].strip(), lang):
+                    cache[s] = got[k].strip()
+                else:  # shown untranslated: numbers or length didn't match the original
+                    rejected += 1
+                    rejected_before.add(s)
+                    cache.pop(s, None)
         atomic_write(cache_path, json.dumps(cache, ensure_ascii=False, indent=1))
+        atomic_write(rej_path, json.dumps(sorted(rejected_before), ensure_ascii=False, indent=1))
         log.info("translate: %d/%d strings", min(i + 250, len(todo)), len(todo))
+    if rejected:
+        log.warning("translate: %d translation(s) didn't keep the original's numbers or length — shown in the original", rejected)
     return cache
 
 
